@@ -1,102 +1,86 @@
-# Licensed to the Apache Software Foundation (ASF) under one
-# or more contributor license agreements. See the NOTICE file
-# distributed with this work for additional information
-# regarding copyright ownership. The ASF licenses this file
-# to you under the Apache License, Version 2.0 (the
-# "License"); you may not use this file except in compliance
-# with the License. You may obtain a copy of the License at
-#
-#   http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an
-# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-# KIND, either express or implied. See the License for the
-# specific language governing permissions and limitations
-# under the License.
-#
-ARG IMAGE_NAME=openjdk
-ARG IMAGE_TAG=8-jre
-FROM ${IMAGE_NAME}:${IMAGE_TAG}
-ARG MAINTAINER="Apache NiFi <dev@nifi.apache.org>"
-LABEL maintainer="${MAINTAINER}"
-LABEL site="https://nifi.apache.org"
+# VERSION 1.10.9
+# AUTHOR: Matthieu "Puckel_" Roisil
+# DESCRIPTION: Basic Airflow container
+# BUILD: docker build --rm -t puckel/docker-airflow .
+# SOURCE: https://github.com/puckel/docker-airflow
 
-ARG UID=1000
-ARG GID=1000
-ARG NIFI_VERSION=1.15.0
-ARG BASE_URL=https://archive.apache.org/dist
-ARG MIRROR_BASE_URL=${MIRROR_BASE_URL:-${BASE_URL}}
-ARG DISTRO_PATH=${DISTRO_PATH:-${NIFI_VERSION}}
-ARG NIFI_BINARY_PATH=${NIFI_BINARY_PATH:-/nifi/${DISTRO_PATH}/nifi-${NIFI_VERSION}-bin.zip}
-ARG NIFI_TOOLKIT_BINARY_PATH=${NIFI_TOOLKIT_BINARY_PATH:-/nifi/${DISTRO_PATH}/nifi-toolkit-${NIFI_VERSION}-bin.zip}
+FROM python:3.7-slim-buster
+LABEL maintainer="Puckel_"
 
-ENV NIFI_BASE_DIR=/opt/nifi
-ENV NIFI_HOME ${NIFI_BASE_DIR}/nifi-current
-ENV NIFI_TOOLKIT_HOME ${NIFI_BASE_DIR}/nifi-toolkit-current
+# Never prompt the user for choices on installation/configuration of packages
+ENV DEBIAN_FRONTEND noninteractive
+ENV TERM linux
 
-ENV NIFI_PID_DIR=${NIFI_HOME}/run
-ENV NIFI_LOG_DIR=${NIFI_HOME}/logs
+# Airflow
+ARG AIRFLOW_VERSION=1.10.9
+ARG AIRFLOW_USER_HOME=/usr/local/airflow
+ARG AIRFLOW_DEPS=""
+ARG PYTHON_DEPS=""
+ENV AIRFLOW_HOME=${AIRFLOW_USER_HOME}
 
-ADD sh/ ${NIFI_BASE_DIR}/scripts/
-RUN chmod -R +x ${NIFI_BASE_DIR}/scripts/*.sh
+# Define en_US.
+ENV LANGUAGE en_US.UTF-8
+ENV LANG en_US.UTF-8
+ENV LC_ALL en_US.UTF-8
+ENV LC_CTYPE en_US.UTF-8
+ENV LC_MESSAGES en_US.UTF-8
 
-# Setup NiFi user and create necessary directories
-RUN groupadd -g ${GID} nifi || groupmod -n nifi `getent group ${GID} | cut -d: -f1` \
-    && useradd --shell /bin/bash -u ${UID} -g ${GID} -m nifi \
-    && mkdir -p ${NIFI_BASE_DIR} \
-    && chown -R nifi:nifi ${NIFI_BASE_DIR} \
-    && apt-get update \
-    && apt-get install -y jq xmlstarlet procps
+# Disable noisy "Handling signal" log messages:
+# ENV GUNICORN_CMD_ARGS --log-level WARNING
 
-USER nifi
+RUN set -ex \
+    && buildDeps=' \
+        freetds-dev \
+        libkrb5-dev \
+        libsasl2-dev \
+        libssl-dev \
+        libffi-dev \
+        libpq-dev \
+        git \
+    ' \
+    && apt-get update -yqq \
+    && apt-get upgrade -yqq \
+    && apt-get install -yqq --no-install-recommends \
+        $buildDeps \
+        freetds-bin \
+        build-essential \
+        default-libmysqlclient-dev \
+        apt-utils \
+        curl \
+        rsync \
+        netcat \
+        locales \
+    && sed -i 's/^# en_US.UTF-8 UTF-8$/en_US.UTF-8 UTF-8/g' /etc/locale.gen \
+    && locale-gen \
+    && update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
+    && useradd -ms /bin/bash -d ${AIRFLOW_USER_HOME} airflow \
+    && pip install -U pip setuptools wheel \
+    && pip install pytz \
+    && pip install pyOpenSSL \
+    && pip install ndg-httpsclient \
+    && pip install pyasn1 \
+    && pip install apache-airflow[crypto,celery,postgres,hive,jdbc,mysql,ssh${AIRFLOW_DEPS:+,}${AIRFLOW_DEPS}]==${AIRFLOW_VERSION} \
+    && pip install 'redis==3.2' \
+    && if [ -n "${PYTHON_DEPS}" ]; then pip install ${PYTHON_DEPS}; fi \
+    && apt-get purge --auto-remove -yqq $buildDeps \
+    && apt-get autoremove -yqq --purge \
+    && apt-get clean \
+    && rm -rf \
+        /var/lib/apt/lists/* \
+        /tmp/* \
+        /var/tmp/* \
+        /usr/share/man \
+        /usr/share/doc \
+        /usr/share/doc-base
 
-# Download, validate, and expand Apache NiFi Toolkit binary.
-RUN curl -fSL ${MIRROR_BASE_URL}/${NIFI_TOOLKIT_BINARY_PATH} -o ${NIFI_BASE_DIR}/nifi-toolkit-${NIFI_VERSION}-bin.zip \
-    && echo "$(curl ${BASE_URL}/${NIFI_TOOLKIT_BINARY_PATH}.sha256) *${NIFI_BASE_DIR}/nifi-toolkit-${NIFI_VERSION}-bin.zip" | sha256sum -c - \
-    && unzip ${NIFI_BASE_DIR}/nifi-toolkit-${NIFI_VERSION}-bin.zip -d ${NIFI_BASE_DIR} \
-    && rm ${NIFI_BASE_DIR}/nifi-toolkit-${NIFI_VERSION}-bin.zip \
-    && mv ${NIFI_BASE_DIR}/nifi-toolkit-${NIFI_VERSION} ${NIFI_TOOLKIT_HOME} \
-    && ln -s ${NIFI_TOOLKIT_HOME} ${NIFI_BASE_DIR}/nifi-toolkit-${NIFI_VERSION}
+COPY script/entrypoint.sh /entrypoint.sh
+COPY config/airflow.cfg ${AIRFLOW_USER_HOME}/airflow.cfg
 
-# Download, validate, and expand Apache NiFi binary.
-RUN curl -fSL ${MIRROR_BASE_URL}/${NIFI_BINARY_PATH} -o ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}-bin.zip \
-    && echo "$(curl ${BASE_URL}/${NIFI_BINARY_PATH}.sha256) *${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}-bin.zip" | sha256sum -c - \
-    && unzip ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}-bin.zip -d ${NIFI_BASE_DIR} \
-    && rm ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}-bin.zip \
-    && mv ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION} ${NIFI_HOME} \
-    && mkdir -p ${NIFI_HOME}/conf \
-    && mkdir -p ${NIFI_HOME}/database_repository \
-    && mkdir -p ${NIFI_HOME}/flowfile_repository \
-    && mkdir -p ${NIFI_HOME}/content_repository \
-    && mkdir -p ${NIFI_HOME}/provenance_repository \
-    && mkdir -p ${NIFI_HOME}/state \
-    && mkdir -p ${NIFI_LOG_DIR} \
-    && ln -s ${NIFI_HOME} ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}
+RUN chown -R airflow: ${AIRFLOW_USER_HOME}
 
-VOLUME ${NIFI_LOG_DIR} \
-       ${NIFI_HOME}/conf \
-       ${NIFI_HOME}/database_repository \
-       ${NIFI_HOME}/flowfile_repository \
-       ${NIFI_HOME}/content_repository \
-       ${NIFI_HOME}/provenance_repository \
-       ${NIFI_HOME}/state
+EXPOSE 8080 5555 8793
 
-# Clear nifi-env.sh in favour of configuring all environment variables in the Dockerfile
-RUN echo "#!/bin/sh\n" > $NIFI_HOME/bin/nifi-env.sh
-
-# Web HTTP(s) & Socket Site-to-Site Ports
-EXPOSE 8080 8443 10000 8000
-
-WORKDIR ${NIFI_HOME}
-
-# Apply configuration and start NiFi
-#
-# We need to use the exec form to avoid running our command in a subshell and omitting signals,
-# thus being unable to shut down gracefully:
-# https://docs.docker.com/engine/reference/builder/#entrypoint
-#
-# Also we need to use relative path, because the exec form does not invoke a command shell,
-# thus normal shell processing does not happen:
-# https://docs.docker.com/engine/reference/builder/#exec-form-entrypoint-example
-ENTRYPOINT ["../scripts/start.sh"]
+USER airflow
+WORKDIR ${AIRFLOW_USER_HOME}
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["webserver"]
