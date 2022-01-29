@@ -1,228 +1,173 @@
-<!--
-  Licensed to the Apache Software Foundation (ASF) under one or more
-  contributor license agreements.  See the NOTICE file distributed with
-  this work for additional information regarding copyright ownership.
-  The ASF licenses this file to You under the Apache License, Version 2.0
-  (the "License"); you may not use this file except in compliance with
-  the License.  You may obtain a copy of the License at
-      http://www.apache.org/licenses/LICENSE-2.0
-  Unless required by applicable law or agreed to in writing, software
-  distributed under the License is distributed on an "AS IS" BASIS,
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  See the License for the specific language governing permissions and
-  limitations under the License.
--->
+# docker-airflow
+[![CI status](https://github.com/puckel/docker-airflow/workflows/CI/badge.svg?branch=master)](https://github.com/puckel/docker-airflow/actions?query=workflow%3ACI+branch%3Amaster+event%3Apush)
+[![Docker Build status](https://img.shields.io/docker/build/puckel/docker-airflow?style=plastic)](https://hub.docker.com/r/puckel/docker-airflow/tags?ordering=last_updated)
 
-## Latest changes
+[![Docker Hub](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com/r/puckel/docker-airflow/)
+[![Docker Pulls](https://img.shields.io/docker/pulls/puckel/docker-airflow.svg)]()
+[![Docker Stars](https://img.shields.io/docker/stars/puckel/docker-airflow.svg)]()
 
-### 1.14.0
+This repository contains **Dockerfile** of [apache-airflow](https://github.com/apache/incubator-airflow) for [Docker](https://www.docker.com/)'s [automated build](https://registry.hub.docker.com/u/puckel/docker-airflow/) published to the public [Docker Hub Registry](https://registry.hub.docker.com/).
 
-- Updated default container configuration to use HTTPS with Single User Authentication
+## Informations
 
-### 1.12.0
-- The NiFi Toolkit has been added to the image under the path `/opt/nifi/nifi-toolkit-current` also set as the environment variable `NIFI_TOOLKIT_HOME`
-- The installation directory and related environment variables are changed to be version-agnostic to `/opt/nifi/nifi-current`:
-```
-docker run --rm --entrypoint /bin/bash apache/nifi:1.12.0 -c 'env | grep NIFI'
-NIFI_HOME=/opt/nifi/nifi-current
-NIFI_LOG_DIR=/opt/nifi/nifi-current/logs
-NIFI_TOOLKIT_HOME=/opt/nifi/nifi-toolkit-current
-NIFI_PID_DIR=/opt/nifi/nifi-current/run
-NIFI_BASE_DIR=/opt/nifi
-```
-- A symlink refer to the new path for backward compatibility:
-```
-docker run --rm --entrypoint /bin/bash apache/nifi:1.12.0 -c 'readlink /opt/nifi/nifi-1.12.0'                                   /opt/nifi/nifi-current
-```
+* Based on Python (3.7-slim-buster) official Image [python:3.7-slim-buster](https://hub.docker.com/_/python/) and uses the official [Postgres](https://hub.docker.com/_/postgres/) as backend and [Redis](https://hub.docker.com/_/redis/) as queue
+* Install [Docker](https://www.docker.com/)
+* Install [Docker Compose](https://docs.docker.com/compose/install/)
+* Following the Airflow release from [Python Package Index](https://pypi.python.org/pypi/apache-airflow)
 
-# Docker Image Quickstart
+## Installation
 
-## Capabilities
-This image currently supports running in standalone mode either unsecured or with user authentication provided through:
-  * [Single User Authentication](https://nifi.apache.org/docs/nifi-docs/html/administration-guide.html#single_user_identity_provider)    
-  * [Mutual TLS with Client Certificates](https://nifi.apache.org/docs/nifi-docs/html/administration-guide.html#security-configuration)
-  * [Lightweight Directory Access Protocol (LDAP)](https://nifi.apache.org/docs/nifi-docs/html/administration-guide.html#ldap_login_identity_provider)
+Pull the image from the Docker repository.
 
-This image also contains the NiFi Toolkit (as of version 1.8.0) preconfigured to use either in secure and unsecure mode.
+    docker pull puckel/docker-airflow
 
-## Building
-The Docker image can be built using the following command:
+## Build
 
-    docker build -t apache/nifi:latest .
+Optionally install [Extra Airflow Packages](https://airflow.incubator.apache.org/installation.html#extra-package) and/or python dependencies at build time :
 
-This build will result in an image tagged apache/nifi:latest
+    docker build --rm --build-arg AIRFLOW_DEPS="datadog,dask" -t puckel/docker-airflow .
+    docker build --rm --build-arg PYTHON_DEPS="flask_oauthlib>=0.9" -t puckel/docker-airflow .
 
-    # user @ puter in ~/Development/code/apache/nifi/nifi-docker/dockerhub
-    $ docker images
-    REPOSITORY               TAG                 IMAGE ID            CREATED                 SIZE
-    apache/nifi              latest              f0f564eed149        A long, long time ago   1.62GB
+or combined
 
-**Note**: The default version of NiFi specified by the Dockerfile is typically that of one that is unreleased if working from source.
-To build an image for a prior released version, one can override the `NIFI_VERSION` build-arg with the following command:
+    docker build --rm --build-arg AIRFLOW_DEPS="datadog,dask" --build-arg PYTHON_DEPS="flask_oauthlib>=0.9" -t puckel/docker-airflow .
 
-    docker build --build-arg=NIFI_VERSION={Desired NiFi Version} -t apache/nifi:latest .
+Don't forget to update the airflow images in the docker-compose files to puckel/docker-airflow:latest.
 
-There is, however, no guarantee that older versions will work as properties have changed and evolved with subsequent releases.
-The configuration scripts are suitable for at least 1.4.0+.
+## Usage
 
-## Running a container
+By default, docker-airflow runs Airflow with **SequentialExecutor** :
 
-### Standalone Instance secured with HTTPS and Single User Authentication
-The minimum to run a NiFi instance is as follows:
+    docker run -d -p 8080:8080 puckel/docker-airflow webserver
 
-    docker run --name nifi \
-      -p 8443:8443 \
-      -d \
-      apache/nifi:latest
+If you want to run another executor, use the other docker-compose.yml files provided in this repository.
 
-This will provide a running instance, exposing the instance UI to the host system on at port 8443,
-viewable at `https://localhost:8443/nifi`.
-The default configuration generates a random username and password on startup. NiFi writes the generated credentials to the application log.
+For **LocalExecutor** :
 
-The following command can be used to find the generated credentials on operating systems with grep installed:
+    docker-compose -f docker-compose-LocalExecutor.yml up -d
 
-    docker logs nifi | grep Generated
+For **CeleryExecutor** :
 
-NiFi logs the generated credentials as follows:
+    docker-compose -f docker-compose-CeleryExecutor.yml up -d
 
-    Generated Username [USERNAME]
-    Generated Password [PASSWORD]
+NB : If you want to have DAGs example loaded (default=False), you've to set the following environment variable :
 
-Environment variables can be used to set the NiFi communication ports and hostname using the Docker '-e' switch as follows:
+`LOAD_EX=n`
 
-    docker run --name nifi \
-      -p 9443:9443 \
-      -d \
-      -e NIFI_WEB_HTTPS_PORT='9443' \
-      apache/nifi:latest
+    docker run -d -p 8080:8080 -e LOAD_EX=y puckel/docker-airflow
 
-Single User Authentication credentials can be specified using environment variables as follows:
+If you want to use Ad hoc query, make sure you've configured connections:
+Go to Admin -> Connections and Edit "postgres_default" set this values (equivalent to values in airflow.cfg/docker-compose*.yml) :
+- Host : postgres
+- Schema : airflow
+- Login : airflow
+- Password : airflow
 
-    docker run --name nifi \
-      -p 8443:8443 \
-      -d \
-      -e SINGLE_USER_CREDENTIALS_USERNAME=admin \
-      -e SINGLE_USER_CREDENTIALS_PASSWORD=ctsBtRBKHRAx69EqUghvvgEvjnaLjFEB \
-      apache/nifi:latest
+For encrypted connection passwords (in Local or Celery Executor), you must have the same fernet_key. By default docker-airflow generates the fernet_key at startup, you have to set an environment variable in the docker-compose (ie: docker-compose-LocalExecutor.yml) file to set the same key accross containers. To generate a fernet_key :
 
-Please note that the password must be 12 characters minimum, otherwise NiFi will generate a random username and password.
-See `secure.sh` and `start.sh` scripts for supported environment variables.
+    docker run puckel/docker-airflow python -c "from cryptography.fernet import Fernet; FERNET_KEY = Fernet.generate_key().decode(); print(FERNET_KEY)"
 
-### Standalone Instance secured with HTTPS and Mutual TLS Authentication
-In this configuration, the user will need to provide certificates and associated configuration information.
-Of particular note, is the `AUTH` environment variable which is set to `tls`.  Additionally, the user must provide an
-the DN as provided by an accessing client certificate in the `INITIAL_ADMIN_IDENTITY` environment variable.
-This value will be used to seed the instance with an initial user with administrative privileges.
-Finally, this command makes use of a volume to provide certificates on the host system to the container instance.
+## Configuring Airflow
 
-    docker run --name nifi \
-      -v /User/dreynolds/certs/localhost:/opt/certs \
-      -p 8443:8443 \
-      -e AUTH=tls \
-      -e KEYSTORE_PATH=/opt/certs/keystore.jks \
-      -e KEYSTORE_TYPE=JKS \
-      -e KEYSTORE_PASSWORD=QKZv1hSWAFQYZ+WU1jjF5ank+l4igeOfQRp+OSbkkrs \
-      -e TRUSTSTORE_PATH=/opt/certs/truststore.jks \
-      -e TRUSTSTORE_PASSWORD=rHkWR1gDNW3R9hgbeRsT3OM3Ue0zwGtQqcFKJD2EXWE \
-      -e TRUSTSTORE_TYPE=JKS \
-      -e INITIAL_ADMIN_IDENTITY='CN=Random User, O=Apache, OU=NiFi, C=US' \
-      -d \
-      apache/nifi:latest
+It's possible to set any configuration value for Airflow from environment variables, which are used over values from the airflow.cfg.
 
-### Standalone Instance secured with HTTPS and LDAP Authentication
-In this configuration, the user will need to provide certificates and associated configuration information.  Optionally,
-if the LDAP provider of interest is operating in LDAPS or START_TLS modes, certificates will additionally be needed.
-Of particular note, is the `AUTH` environment variable which is set to `ldap`.  Additionally, the user must provide a
-DN as provided by the configured LDAP server in the `INITIAL_ADMIN_IDENTITY` environment variable. This value will be
-used to seed the instance with an initial user with administrative privileges.  Finally, this command makes use of a
-volume to provide certificates on the host system to the container instance.
+The general rule is the environment variable should be named `AIRFLOW__<section>__<key>`, for example `AIRFLOW__CORE__SQL_ALCHEMY_CONN` sets the `sql_alchemy_conn` config option in the `[core]` section.
 
-#### For a minimal, connection to an LDAP server using SIMPLE authentication:
+Check out the [Airflow documentation](http://airflow.readthedocs.io/en/latest/howto/set-config.html#setting-configuration-options) for more details
 
-    docker run --name nifi \
-      -v /User/dreynolds/certs/localhost:/opt/certs \
-      -p 8443:8443 \
-      -e AUTH=ldap \
-      -e KEYSTORE_PATH=/opt/certs/keystore.jks \
-      -e KEYSTORE_TYPE=JKS \
-      -e KEYSTORE_PASSWORD=QKZv1hSWAFQYZ+WU1jjF5ank+l4igeOfQRp+OSbkkrs \
-      -e TRUSTSTORE_PATH=/opt/certs/truststore.jks \
-      -e TRUSTSTORE_PASSWORD=rHkWR1gDNW3R9hgbeRsT3OM3Ue0zwGtQqcFKJD2EXWE \
-      -e TRUSTSTORE_TYPE=JKS \
-      -e INITIAL_ADMIN_IDENTITY='cn=admin,dc=example,dc=org' \
-      -e LDAP_AUTHENTICATION_STRATEGY='SIMPLE' \
-      -e LDAP_MANAGER_DN='cn=admin,dc=example,dc=org' \
-      -e LDAP_MANAGER_PASSWORD='password' \
-      -e LDAP_USER_SEARCH_BASE='dc=example,dc=org' \
-      -e LDAP_USER_SEARCH_FILTER='cn={0}' \
-      -e LDAP_IDENTITY_STRATEGY='USE_DN' \
-      -e LDAP_URL='ldap://ldap:389' \
-      -d \
-      apache/nifi:latest
+You can also define connections via environment variables by prefixing them with `AIRFLOW_CONN_` - for example `AIRFLOW_CONN_POSTGRES_MASTER=postgres://user:password@localhost:5432/master` for a connection called "postgres_master". The value is parsed as a URI. This will work for hooks etc, but won't show up in the "Ad-hoc Query" section unless an (empty) connection is also created in the DB
 
-#### The following, optional environment variables may be added to the above command when connecting to a secure  LDAP server configured with START_TLS or LDAPS
+## Custom Airflow plugins
 
-    -e LDAP_TLS_KEYSTORE: ''
-    -e LDAP_TLS_KEYSTORE_PASSWORD: ''
-    -e LDAP_TLS_KEYSTORE_TYPE: ''
-    -e LDAP_TLS_TRUSTSTORE: ''
-    -e LDAP_TLS_TRUSTSTORE_PASSWORD: ''
-    -e LDAP_TLS_TRUSTSTORE_TYPE: ''
+Airflow allows for custom user-created plugins which are typically found in `${AIRFLOW_HOME}/plugins` folder. Documentation on plugins can be found [here](https://airflow.apache.org/plugins.html)
 
-#### Clustering can be enabled by using the following properties to Docker environment variable mappings.
+In order to incorporate plugins into your docker container
+- Create the plugins folders `plugins/` with your custom plugins.
+- Mount the folder as a volume by doing either of the following:
+    - Include the folder as a volume in command-line `-v $(pwd)/plugins/:/usr/local/airflow/plugins`
+    - Use docker-compose-LocalExecutor.yml or docker-compose-CeleryExecutor.yml which contains support for adding the plugins folder as a volume
 
-##### nifi.properties
+## Install custom python package
 
-| Property                                  | Environment Variable                   |
-|-------------------------------------------|----------------------------------------|
-| nifi.cluster.is.node                      | NIFI_CLUSTER_IS_NODE                   |
-| nifi.cluster.node.address                 | NIFI_CLUSTER_ADDRESS                   |
-| nifi.cluster.node.protocol.port           | NIFI_CLUSTER_NODE_PROTOCOL_PORT        |
-| nifi.cluster.node.protocol.max.threads    | NIFI_CLUSTER_NODE_PROTOCOL_MAX_THREADS |
-| nifi.zookeeper.connect.string             | NIFI_ZK_CONNECT_STRING                 |
-| nifi.zookeeper.root.node                  | NIFI_ZK_ROOT_NODE                      |
-| nifi.cluster.flow.election.max.wait.time  | NIFI_ELECTION_MAX_WAIT                 |
-| nifi.cluster.flow.election.max.candidates | NIFI_ELECTION_MAX_CANDIDATES           |
+- Create a file "requirements.txt" with the desired python modules
+- Mount this file as a volume `-v $(pwd)/requirements.txt:/requirements.txt` (or add it as a volume in docker-compose file)
+- The entrypoint.sh script execute the pip install command (with --user option)
 
-##### state-management.xml
+## UI Links
 
-| Property Name  | Environment Variable   |
-|----------------|------------------------|
-| Connect String | NIFI_ZK_CONNECT_STRING |
-| Root Node      | NIFI_ZK_ROOT_NODE      |
+- Airflow: [localhost:8080](http://localhost:8080/)
+- Flower: [localhost:5555](http://localhost:5555/)
 
 
-### Using the Toolkit
+## Scale the number of workers
 
-Start the container:
+Easy scaling using docker-compose:
 
-    docker run -d --name nifi apache/nifi
+    docker-compose -f docker-compose-CeleryExecutor.yml scale worker=5
 
-After NiFi has been started, it is possible to run toolkit commands against the running instance:
+This can be used to scale to a multi node setup using docker swarm.
 
-    docker exec -ti nifi nifi-toolkit-current/bin/cli.sh nifi current-user
-    anonymous
+## Running other airflow commands
 
-## Configuration Information
-The following ports are specified by default in Docker for NiFi operation within the container and
-can be published to the host.
+If you want to run other airflow sub-commands, such as `list_dags` or `clear` you can do so like this:
 
-| Function                 | Property                      | Port  |
-|--------------------------|-------------------------------|-------|
-| HTTP Port                | nifi.web.http.port            | 8080  |
-| HTTPS Port               | nifi.web.https.port           | 8443  |
-| Remote Input Socket Port | nifi.remote.input.socket.port | 10000 |
-| JVM Debugger             | java.arg.debug                | 8000  |
+    docker run --rm -ti puckel/docker-airflow airflow list_dags
 
-The Variable Registry can be configured for the docker image using the `NIFI_VARIABLE_REGISTRY_PROPERTIES` environment variable.
+or with your docker-compose set up like this:
 
-The JVM Memory initial and maximum heap size can be set using the `NIFI_JVM_HEAP_INIT` and `NIFI_JVM_HEAP_MAX` environment variables. These use values acceptable to the JVM `Xmx` and `Xms` parameters such as `1g` or `512m`.
+    docker-compose -f docker-compose-CeleryExecutor.yml run --rm webserver airflow list_dags
 
-The JVM Debugger can be enabled by setting the environment variable NIFI_JVM_DEBUGGER to any value.
+You can also use this to run a bash shell or any other command in the same environment that airflow would be run in:
 
-=======
-**NOTE**: If NiFi is proxied at context paths other than the root path of the proxy, the paths need to be set in the
-_nifi.web.proxy.context.path_ property, which can be assigned via the environment variable _NIFI\_WEB\_PROXY\_CONTEXT\_PATH_.
+    docker run --rm -ti puckel/docker-airflow bash
+    docker run --rm -ti puckel/docker-airflow ipython
 
-**NOTE**: If mapping the HTTPS port specifying trusted hosts should be provided for the property _nifi.web.proxy.host_.  This property can be specified to running instances
-via specifying an environment variable at container instantiation of _NIFI\_WEB\_PROXY\_HOST_.
+# Simplified SQL database configuration using PostgreSQL
+
+If the executor type is set to anything else than *SequentialExecutor* you'll need an SQL database.
+Here is a list of PostgreSQL configuration variables and their default values. They're used to compute
+the `AIRFLOW__CORE__SQL_ALCHEMY_CONN` and `AIRFLOW__CELERY__RESULT_BACKEND` variables when needed for you
+if you don't provide them explicitly:
+
+| Variable            | Default value |  Role                |
+|---------------------|---------------|----------------------|
+| `POSTGRES_HOST`     | `postgres`    | Database server host |
+| `POSTGRES_PORT`     | `5432`        | Database server port |
+| `POSTGRES_USER`     | `airflow`     | Database user        |
+| `POSTGRES_PASSWORD` | `airflow`     | Database password    |
+| `POSTGRES_DB`       | `airflow`     | Database name        |
+| `POSTGRES_EXTRAS`   | empty         | Extras parameters    |
+
+You can also use those variables to adapt your compose file to match an existing PostgreSQL instance managed elsewhere.
+
+Please refer to the Airflow documentation to understand the use of extras parameters, for example in order to configure
+a connection that uses TLS encryption.
+
+Here's an important thing to consider:
+
+> When specifying the connection as URI (in AIRFLOW_CONN_* variable) you should specify it following the standard syntax of DB connections,
+> where extras are passed as parameters of the URI (note that all components of the URI should be URL-encoded).
+
+Therefore you must provide extras parameters URL-encoded, starting with a leading `?`. For example:
+
+    POSTGRES_EXTRAS="?sslmode=verify-full&sslrootcert=%2Fetc%2Fssl%2Fcerts%2Fca-certificates.crt"
+
+# Simplified Celery broker configuration using Redis
+
+If the executor type is set to *CeleryExecutor* you'll need a Celery broker. Here is a list of Redis configuration variables
+and their default values. They're used to compute the `AIRFLOW__CELERY__BROKER_URL` variable for you if you don't provide
+it explicitly:
+
+| Variable          | Default value | Role                           |
+|-------------------|---------------|--------------------------------|
+| `REDIS_PROTO`     | `redis://`    | Protocol                       |
+| `REDIS_HOST`      | `redis`       | Redis server host              |
+| `REDIS_PORT`      | `6379`        | Redis server port              |
+| `REDIS_PASSWORD`  | empty         | If Redis is password protected |
+| `REDIS_DBNUM`     | `1`           | Database number                |
+
+You can also use those variables to adapt your compose file to match an existing Redis instance managed elsewhere.
+
+# Wanna help?
+
+Fork, improve and PR.
